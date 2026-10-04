@@ -150,3 +150,8 @@ python run_cli.py path\to\diagram.jpg
 | GET | `/jobs/{id}/result` | Generated files, remaining errors, parsed diagram |
 | GET | `/docs` | Interactive Swagger UI |
 
+## Limitations
+
+- Handwriting can be misread. Messy or low-light photos give worse results.
+- Validation checks that the SQL **runs**. It does not check that the schema means what you drew, so review relationships such as many-to-many tables.
+- `api.py` is a skeleton with stub routes, not a finished backend.
