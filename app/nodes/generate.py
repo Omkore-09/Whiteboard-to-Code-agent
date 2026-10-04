@@ -6,6 +6,8 @@ from langchain_groq import ChatGroq
 from app.config import CODE_MODEL
 from app.state import AgentState
 
+SQL_LANGS = {"sql", "postgresql", "postgres", "psql", "pgsql"}
+PY_LANGS = {"python", "py", "python3"}
 FENCE = "`" * 3
 
 SYSTEM = f"""You are a senior backend engineer. From the ER model below produce two files.
@@ -29,15 +31,25 @@ with GET (list) and POST (create) routes per table. Route bodies can be stubs wi
 
 
 def _extract(text: str) -> tuple[str, str]:
-    sql = re.search(rf"{FENCE}sql\s*\n(.*?){FENCE}", text, re.S)
-    py = re.search(rf"{FENCE}python\s*\n(.*?){FENCE}", text, re.S)
+    blocks = re.findall(rf"{FENCE}[ \t]*([\w+-]*)[ \t]*\n(.*?)(?:{FENCE}|\Z)", text, re.S)
+    sql = py = None
+    for lang, body in blocks:
+        body, lang = body.strip(), lang.lower()
+        if lang in SQL_LANGS:
+            sql = sql or body
+        elif lang in PY_LANGS:
+            py = py or body
+        elif "create table" in body.lower():
+            sql = sql or body
+        elif "fastapi" in body.lower():
+            py = py or body
     if not sql or not py:
-        raise ValueError("Model reply did not contain both a sql block and a python block")
-    return sql.group(1).strip(), py.group(1).strip()
+        raise ValueError(f"Model reply is missing a sql or python block. Reply began: {text[:200]!r}")
+    return sql, py
 
 
 def generate_code(state: AgentState) -> dict:
-    llm = ChatGroq(model=CODE_MODEL, temperature=0.2)
+    llm = ChatGroq(model=CODE_MODEL, temperature=0.2, max_tokens=8000)
     prompt = f"{SYSTEM}\n\nER model (JSON):\n{json.dumps(state['parsed_diagram'], indent=2)}"
 
     if state.get("errors"):
