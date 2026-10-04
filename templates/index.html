@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whiteboard to Code</title>
+<style>
+:root{
+  --bg:#0b0d12; --panel:#12151c; --panel2:#171b24; --border:#252a36;
+  --text:#e8ebf2; --muted:#8b93a7;
+  --accent:#7c6cff; --accent2:#4cc3ff;
+  --ok:#3ddc97; --warn:#ffb454; --err:#ff6b6b;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#f5f6fa; --panel:#fff; --panel2:#f0f2f7; --border:#dfe3ec; --text:#171a22; --muted:#5d6577; }
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{
+  margin:0; min-height:100vh; color:var(--text);
+  background:radial-gradient(1100px 480px at 50% -10%, rgba(124,108,255,.18), transparent), var(--bg);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+main{max-width:960px; margin:0 auto; padding:40px 20px 80px; display:grid; gap:20px}
+header{display:flex; gap:16px; align-items:center}
+.logo{
+  width:48px; height:48px; border-radius:14px; flex:none; color:#fff; font-size:22px;
+  display:grid; place-items:center; background:linear-gradient(135deg,var(--accent),var(--accent2));
+}
+h1{margin:0; font-size:26px; letter-spacing:-.02em}
+header p{margin:2px 0 0; color:var(--muted)}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:22px}
+h2{margin:0 0 14px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+
+.drop{
+  display:grid; place-items:center; min-height:220px; padding:16px; text-align:center; cursor:pointer;
+  border:2px dashed var(--border); border-radius:14px; background:var(--panel2); transition:.15s;
+}
+.drop:hover,.drop.over{border-color:var(--accent); background:color-mix(in srgb,var(--accent) 8%,var(--panel2))}
+.drop span{display:block; margin-top:4px; color:var(--muted); font-size:13px}
+.drop img{max-width:100%; max-height:320px; border-radius:10px}
+.actions{display:flex; align-items:center; gap:14px; margin-top:16px}
+button{
+  font:inherit; cursor:pointer; color:var(--text); background:var(--panel2);
+  border:1px solid var(--border); padding:8px 14px; border-radius:10px; transition:.15s;
+}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.45; cursor:not-allowed}
+#go{background:linear-gradient(135deg,var(--accent),#5b8cff); border:0; color:#fff; padding:11px 22px; font-weight:600}
+#msg{color:var(--muted); font-size:13px}
+#msg.bad{color:var(--err)}
+
+.steps{list-style:none; margin:0; padding:0; display:grid; gap:4px}
+.steps li{display:flex; gap:14px; align-items:center; padding:10px 12px; border-radius:12px}
+.steps small{display:block; color:var(--muted)}
+.steps li.idle{opacity:.5}
+.steps li.active{background:var(--panel2)}
+.dot{
+  width:22px; height:22px; border-radius:50%; flex:none; border:2px solid var(--border);
+  display:grid; place-items:center; font-size:12px; font-weight:700;
+}
+.active .dot{border-color:var(--accent); border-top-color:transparent; animation:spin .8s linear infinite}
+.done .dot{background:var(--ok); border-color:var(--ok); color:#06210f}
+.done .dot::after{content:"\2713"}
+.warn .dot{background:var(--warn); border-color:var(--warn); color:#2b1a00}
+.warn .dot::after{content:"!"}
+.fail .dot{background:var(--err); border-color:var(--err); color:#fff}
+.fail .dot::after{content:"\00d7"}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.note{
+  margin-top:12px; padding:10px 12px; border-radius:10px; font-size:13px; word-break:break-word;
+  background:color-mix(in srgb,var(--warn) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);
+}
+.note.bad{
+  background:color-mix(in srgb,var(--err) 12%,transparent);
+  border-color:color-mix(in srgb,var(--err) 40%,transparent);
+}
+details{margin-top:14px; color:var(--muted); font-size:13px}
+#log{margin:8px 0 0; font:12px/1.6 ui-monospace,Consolas,monospace; white-space:pre-wrap}
+
+.tabs{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px}
+.tabs button.on{background:var(--accent); border-color:var(--accent); color:#fff}
+.toolbar{display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px}
+.code{
+  margin:0; padding:16px; overflow:auto; max-height:560px; white-space:pre;
+  background:var(--panel2); border:1px solid var(--border); border-radius:12px;
+  font:13px/1.55 ui-monospace,Consolas,monospace;
+}
+.diagram{
+  overflow:auto; padding:12px; text-align:center;
+  background:var(--panel2); border:1px solid var(--border); border-radius:12px;
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo">&#9638;</div>
+    <div>
+      <h1>Whiteboard to Code</h1>
+      <p>Upload a hand-drawn ER diagram. Get a validated SQL schema, an API skeleton and docs.</p>
+    </div>
+  </header>
+
+  <section class="card">
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
+      <img id="preview" alt="Selected diagram" hidden>
+      <div id="drop-text">
+        <strong>Drop your diagram here</strong>
+        <span>or click to browse &middot; JPEG, PNG, WebP &middot; max 8 MB</span>
+      </div>
+    </label>
+    <div class="actions">
+      <button id="go" disabled>Generate code</button>
+      <span id="msg"></span>
+    </div>
+  </section>
+
+  <section class="card" id="progress-card" hidden>
+    <h2>Pipeline</h2>
+    <ol class="steps" id="steps">
+      <li data-step="parse"    data-sub="Vision model extracts tables and relations"><span class="dot"></span><div><b>Read diagram</b><small></small></div></li>
+      <li data-step="generate" data-sub="Code model writes schema.sql and api.py"><span class="dot"></span><div><b>Generate code</b><small></small></div></li>
+      <li data-step="validate" data-sub="Runs the SQL in a scratch Postgres schema"><span class="dot"></span><div><b>Validate</b><small></small></div></li>
+      <li data-step="readme"   data-sub="Builds the README and ER diagram"><span class="dot"></span><div><b>Write docs</b><small></small></div></li>
+    </ol>
+    <div class="note" id="note" hidden></div>
+    <details><summary>Event log</summary><pre id="log"></pre></details>
+  </section>
+
+  <section class="card" id="result-card" hidden>
+    <h2>Result</h2>
+    <div class="tabs" id="tabs"></div>
+    <div class="toolbar">
+      <button id="copy">Copy</button>
+      <button id="dl">Download</button>
+    </div>
+    <div id="viewer"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const MAX_ATTEMPTS = 3;               // keep in sync with MAX_ATTEMPTS in app/graph.py
+const FENCE = '\x60'.repeat(3);
+const TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+let file = null, es = null, result = null, current = null, mermaid = null;
+
+// Mermaid renders the ER diagram. If the CDN is blocked, the Diagram tab falls back to plain text.
+import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs').then(m => {
+  mermaid = m.default;
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' });
+}).catch(() => {});
+
+function msg(text, bad) { $('#msg').textContent = text; $('#msg').className = bad ? 'bad' : ''; }
+
+// ---- file selection ----
+const drop = $('#drop'), input = $('#file');
+function setFile(f) {
+  if (!f) return;
+  if (!TYPES.includes(f.type)) return msg('Please choose a JPEG, PNG or WebP image.', true);
+  if (f.size > 8 * 1024 * 1024) return msg('Image is larger than 8 MB.', true);
+  file = f;
+  $('#preview').src = URL.createObjectURL(f);
+  $('#preview').hidden = false;
+  $('#drop-text').hidden = true;
+  $('#go').disabled = false;
+  msg('');
+}
+input.onchange = () => setFile(input.files[0]);
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => setFile(e.dataTransfer.files[0]));
+
+// ---- pipeline UI ----
+function setStep(name, state, sub) {
+  const li = document.querySelector(`[data-step="${name}"]`);
+  li.className = state;
+  li.querySelector('small').textContent = sub ?? li.dataset.sub;
+}
+function resetSteps() {
+  document.querySelectorAll('#steps li').forEach(li => setStep(li.dataset.step, 'idle'));
+  $('#log').textContent = '';
+  $('#note').hidden = true;
+}
+function note(text, bad) {
+  const n = $('#note');
+  n.textContent = text;
+  n.className = bad ? 'note bad' : 'note';
+  n.hidden = false;
+}
+function log(ev) {
+  const t = new Date().toLocaleTimeString();
+  const extra = ev.attempt ? ` (attempt ${ev.attempt})` : '';
+  $('#log').textContent += `${t}  ${ev.stage}${extra}\n`;
+}
+
+// ---- start a job ----
+$('#go').onclick = async () => {
+  if (!file) return;
+  if (es) es.close();
+  $('#go').disabled = true;
+  msg('Uploading...');
+  $('#result-card').hidden = true;
+  $('#progress-card').hidden = false;
+  resetSteps();
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch('/jobs', { method: 'POST', body: fd });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || r.statusText);
+    }
+    const { job_id } = await r.json();
+    msg('');
+    listen(job_id);
+  } catch (e) {
+    msg(e.message, true);
+    $('#progress-card').hidden = true;
+    $('#go').disabled = false;
+  }
+};
+
+function listen(id) {
+  es = new EventSource(`/jobs/${id}/events`);
+  es.onmessage = m => {
+    const ev = JSON.parse(m.data);
+    log(ev);
+    handle(ev, id);
+  };
+}
+
+function handle(ev, id) {
+  const { stage, attempt, errors = [] } = ev;
+  if (stage === 'started') {
+    setStep('parse', 'active');
+  } else if (stage === 'parse') {
+    setStep('parse', 'done');
+    setStep('generate', 'active');
+  } else if (stage === 'generate') {
+    setStep('generate', 'done', `Attempt ${attempt}`);
+    setStep('validate', 'active');
+  } else if (stage === 'validate') {
+    if (errors.length && attempt < MAX_ATTEMPTS) {
+      setStep('validate', 'warn', `Attempt ${attempt} failed, asking the model to fix it`);
+      setStep('generate', 'active', `Retry ${attempt + 1}`);
+      note('Validation error: ' + errors[0]);
+    } else if (errors.length) {
+      setStep('validate', 'warn', `Still failing after ${MAX_ATTEMPTS} attempts`);
+      setStep('readme', 'active');
+      note('Validation error: ' + errors[0]);
+    } else {
+      setStep('validate', 'done', 'SQL ran cleanly in a scratch schema');
+      setStep('readme', 'active');
+      $('#note').hidden = true;
+    }
+  } else if (stage === 'readme') {
+    setStep('readme', 'done');
+  } else if (stage === 'done') {
+    es.close();
+    finish(id);
+  } else if (stage === 'failed') {
+    es.close();
+    const li = document.querySelector('#steps li.active');
+    if (li) li.className = 'fail';
+    note('Job failed: ' + (ev.error || 'unknown error'), true);
+    $('#go').disabled = false;
+  }
+}
+
+// ---- results ----
+async function finish(id) {
+  const r = await fetch(`/jobs/${id}/result`);
+  $('#go').disabled = false;
+  if (!r.ok) return note('Could not load the result.', true);
+  result = await r.json();
+  const t = $('#tabs');
+  t.innerHTML = '';
+  ['Diagram', ...Object.keys(result.files)].forEach(name => {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.onclick = () => selectTab(name);
+    t.append(b);
+  });
+  $('#result-card').hidden = false;
+  await selectTab('Diagram');
+  $('#result-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function selectTab(name) {
+  current = name;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.textContent === name));
+  const isDiagram = name === 'Diagram';
+  $('#copy').hidden = isDiagram;
+  $('#dl').hidden = isDiagram;
+  const v = $('#viewer');
+  v.innerHTML = '';
+  if (isDiagram) return drawDiagram(v);
+  const pre = document.createElement('pre');
+  pre.className = 'code';
+  pre.textContent = result.files[name];
+  v.append(pre);
+}
+
+function codeBlock(text) {
+  const pre = document.createElement('pre');
+  pre.className = 'code';
+  pre.textContent = text;
+  return pre;
+}
+
+async function drawDiagram(v) {
+  const m = new RegExp(FENCE + 'mermaid\\n([\\s\\S]*?)' + FENCE).exec(result.files['README.md'] || '');
+  if (!m) { v.textContent = 'No diagram available.'; return; }
+  if (!mermaid) { v.append(codeBlock(m[1])); return; }
+  try {
+    const { svg } = await mermaid.render('er' + Date.now(), m[1]);
+    const box = document.createElement('div');
+    box.className = 'diagram';
+    box.innerHTML = svg;
+    v.append(box);
+  } catch (e) {
+    v.append(codeBlock(m[1]));
+  }
+}
+
+$('#copy').onclick = async e => {
+  await navigator.clipboard.writeText(result.files[current]);
+  e.target.textContent = 'Copied';
+  setTimeout(() => (e.target.textContent = 'Copy'), 1200);
+};
+$('#dl').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([result.files[current]], { type: 'text/plain' }));
+  a.download = current;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+</script>
+</body>
+</html>

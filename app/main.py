@@ -9,11 +9,13 @@ from arq import create_pool
 from arq.connections import RedisSettings
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from sse_starlette.sse import EventSourceResponse
+from fastapi.responses import FileResponse
 
 from app.config import REDIS_URL
 
 UPLOADS = pathlib.Path("uploads")
 UPLOADS.mkdir(exist_ok=True)
+INDEX = pathlib.Path(__file__).resolve().parent.parent / "templates" / "index.html"
 EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 MAX_BYTES = 8 * 1024 * 1024
 
@@ -29,6 +31,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Whiteboard-to-Code", lifespan=lifespan)
 
+@app.get("/", include_in_schema=False)
+async def index():
+    return FileResponse(INDEX)
 
 @app.post("/jobs")
 async def create_job(file: UploadFile = File(...)):
