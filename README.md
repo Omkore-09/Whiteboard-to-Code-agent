@@ -5,7 +5,7 @@ Upload a photo of a hand-drawn ER diagram. A vision model reads it, **you review
 It is also a hands-on exploration of **LangGraph agent pipelines running behind a Redis job queue**, with several workers, live progress over SSE and a human-in-the-loop step.
 <img width="1634" height="874" alt="image" src="https://github.com/user-attachments/assets/76729d58-e519-4b8f-a313-d89aefc58d7b" />
 <img width="1584" height="874" alt="image" src="https://github.com/user-attachments/assets/b4b4fa44-9bad-4afe-98ec-dff4942456a7" />
-<img width="1584" height="874" alt="image" src="https://github.com/user-attachments/assets/4a943fce-d0ec-4b7b-abd0-b793a0d853d0" />
+<img width="1430" height="878" alt="image" src="https://github.com/user-attachments/assets/21fc15f4-cdae-4d90-935a-e2c0ce9713c7" />
 
 ## Contents
 
