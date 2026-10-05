@@ -3,6 +3,9 @@
 Upload a photo of a hand-drawn ER diagram. A vision model reads it, **you review and correct what it read**, and the project returns a **validated PostgreSQL schema**, a **FastAPI skeleton** and a **README with a rendered ER diagram**.
 
 It is also a hands-on exploration of **LangGraph agent pipelines running behind a Redis job queue**, with several workers, live progress over SSE and a human-in-the-loop step.
+<img width="1634" height="874" alt="image" src="https://github.com/user-attachments/assets/76729d58-e519-4b8f-a313-d89aefc58d7b" />
+<img width="1584" height="874" alt="image" src="https://github.com/user-attachments/assets/b4b4fa44-9bad-4afe-98ec-dff4942456a7" />
+<img width="1584" height="874" alt="image" src="https://github.com/user-attachments/assets/4a943fce-d0ec-4b7b-abd0-b793a0d853d0" />
 
 ## Contents
 
@@ -177,7 +180,6 @@ To see parallelism, start three workers in three terminals and submit several di
 | Image handling | Pillow (rotation fix, grayscale, auto-contrast, resize) |
 | Frontend | Plain HTML, CSS and JavaScript, Mermaid for the diagram |
 
-Everything runs on free tiers. No GPU and no Docker are needed. Groq's model lineup changes often, so model names live in `.env`.
 
 ## Project structure
 
@@ -211,7 +213,7 @@ You need Python 3.11 or 3.12, a Redis server, a free [Groq](https://console.groq
 3. **Clone and create the environment.**
 
 ```powershell
-git clone https://github.com/<your-username>/<repo-name>.git
+https://github.com/Omkore-09/Whiteboard-to-Code-agent.git
 cd <repo-name>
 python -m venv .venv
 .venv\Scripts\Activate.ps1
