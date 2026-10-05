@@ -3,7 +3,7 @@ import io
 
 from langchain_core.messages import HumanMessage
 from langchain_groq import ChatGroq
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import VISION_MODEL
 from app.schemas import ParsedDiagram
@@ -14,19 +14,21 @@ Extract every entity (table), its columns with sensible SQL types, primary keys,
 and the relations between entities. If handwriting is unclear, make your best
 guess and describe the doubt in `notes`. Do not invent entities that are not drawn.
 Put each relationship's diamond label in `name`. If two entities are joined by several
-diamonds, output one relation per diamond."""
+diamonds, output one relation per diamond.Read every attribute oval or column; 
+do not skip any. Keep the spelling exactly as written."""
 
 
 def _encode(path: str) -> str:
-    img = Image.open(path).convert("RGB")
-    img.thumbnail((1600, 1600))  # keeps the payload small for the free tier
+    img = ImageOps.exif_transpose(Image.open(path))  
+    img = ImageOps.autocontrast(img.convert("L"), cutoff=1).convert("RGB")  
+    img.thumbnail((1800, 1800))
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
     return base64.b64encode(buf.getvalue()).decode()
 
 
 def parse_diagram(state: AgentState) -> dict:
-    llm = ChatGroq(model=VISION_MODEL, temperature=0).with_structured_output(ParsedDiagram)
+    llm = ChatGroq(model=VISION_MODEL, temperature=0 , max_retries=4).with_structured_output(ParsedDiagram)
     msg = HumanMessage(content=[
         {"type": "text", "text": PROMPT},
         {"type": "image_url",

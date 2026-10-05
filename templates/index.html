@@ -92,6 +92,20 @@ details{margin-top:14px; color:var(--muted); font-size:13px}
   overflow:auto; padding:12px; text-align:center;
   background:var(--panel2); border:1px solid var(--border); border-radius:12px;
 }
+.hint{margin:-6px 0 14px; color:var(--muted); font-size:13px}
+.actions{flex-wrap:wrap}
+.ent{border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px; background:var(--panel2)}
+.ent-head,.row{display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap}
+input[type=text],select{
+  font:inherit; color:var(--text); background:var(--panel); min-width:0;
+  border:1px solid var(--border); border-radius:8px; padding:6px 10px;
+}
+input[type=text]:focus,select:focus{outline:none; border-color:var(--accent)}
+.ent-head input{flex:1; font-weight:600}
+.row input[type=text]{flex:1}
+.x{padding:4px 9px; color:var(--muted)}
+.sub{margin:14px 0 6px; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em}
+#rmsg{color:var(--err); font-size:13px}
 </style>
 </head>
 <body>
@@ -123,6 +137,7 @@ details{margin-top:14px; color:var(--muted); font-size:13px}
     <h2>Pipeline</h2>
     <ol class="steps" id="steps">
       <li data-step="parse"    data-sub="Vision model extracts tables and relations"><span class="dot"></span><div><b>Read diagram</b><small></small></div></li>
+      <li data-step="review" data-sub="You check the extracted tables before code is written"><span class="dot"></span><div><b>Review</b><small></small></div></li>
       <li data-step="generate" data-sub="Code model writes schema.sql and api.py"><span class="dot"></span><div><b>Generate code</b><small></small></div></li>
       <li data-step="validate" data-sub="Runs the SQL in a scratch Postgres schema"><span class="dot"></span><div><b>Validate</b><small></small></div></li>
       <li data-step="readme"   data-sub="Builds the README and ER diagram"><span class="dot"></span><div><b>Write docs</b><small></small></div></li>
@@ -130,6 +145,23 @@ details{margin-top:14px; color:var(--muted); font-size:13px}
     <div class="note" id="note" hidden></div>
     <details><summary>Event log</summary><pre id="log"></pre></details>
   </section>
+
+  <section class="card" id="review-card" hidden>
+  <h2>Review extracted tables</h2>
+  <p class="hint">Fix anything the model misread, then continue. Column types are PostgreSQL types.</p>
+  <div class="note" id="vnotes" hidden></div>
+  <div id="editor"></div>
+  <datalist id="types">
+    <option value="varchar"><option value="text"><option value="integer"><option value="bigint">
+    <option value="numeric"><option value="boolean"><option value="date"><option value="timestamp">
+  </datalist>
+  <div class="actions">
+    <button id="add-entity">+ Table</button>
+    <button id="add-rel">+ Relation</button>
+    <button id="approve">Looks good, generate code</button>
+    <span id="rmsg"></span>
+  </div>
+</section>
 
   <section class="card" id="result-card" hidden>
     <h2>Result</h2>
@@ -148,8 +180,9 @@ const MAX_ATTEMPTS = 3;               // keep in sync with MAX_ATTEMPTS in app/g
 const FENCE = '\x60'.repeat(3);
 const TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 let file = null, es = null, result = null, current = null, mermaid = null;
+let jobId = null, seen = 0, diagram = null;
+const KINDS = ['one-to-one', 'one-to-many', 'many-to-many'];
 
-// Mermaid renders the ER diagram. If the CDN is blocked, the Diagram tab falls back to plain text.
 import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs').then(m => {
   mermaid = m.default;
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
@@ -208,6 +241,8 @@ $('#go').onclick = async () => {
   $('#result-card').hidden = true;
   $('#progress-card').hidden = false;
   resetSteps();
+  seen = 0;
+  $('#review-card').hidden = true;
   const fd = new FormData();
   fd.append('file', file);
   try {
@@ -226,22 +261,27 @@ $('#go').onclick = async () => {
   }
 };
 
-function listen(id) {
-  es = new EventSource(`/jobs/${id}/events`);
+function listen(id, after = 0) {
+  jobId = id;
+  if (es) es.close();
+  es = new EventSource(`/jobs/${id}/events?after=${after}`);
   es.onmessage = m => {
+    seen++;
     const ev = JSON.parse(m.data);
     log(ev);
     handle(ev, id);
   };
 }
-
 function handle(ev, id) {
   const { stage, attempt, errors = [] } = ev;
   if (stage === 'started') {
     setStep('parse', 'active');
-  } else if (stage === 'parse') {
+    } else if (stage === 'parse') {
     setStep('parse', 'done');
-    setStep('generate', 'active');
+    setStep('review', 'active', 'Waiting for your review');
+  } else if (stage === 'review') {
+    es.close();
+    showReview(id);
   } else if (stage === 'generate') {
     setStep('generate', 'done', `Attempt ${attempt}`);
     setStep('validate', 'active');
@@ -340,6 +380,136 @@ $('#dl').onclick = () => {
   a.download = current;
   a.click();
   URL.revokeObjectURL(a.href);
+};
+
+// ---- review editor ----
+function h(tag, props = {}, ...kids) {
+  const el = document.createElement(tag);
+  Object.assign(el, props);
+  kids.flat().forEach(k => el.append(k));
+  return el;
+}
+function field(value, set, placeholder = '', list = '', rerender = false) {
+  const i = h('input', { type: 'text', value: value || '', placeholder });
+  if (list) i.setAttribute('list', list);
+  i.oninput = () => set(i.value);
+  if (rerender) i.onchange = renderEditor;
+  return i;
+}
+function select(options, value, set) {
+  const s = h('select', {}, options.map(o => h('option', { value: o, textContent: o, selected: o === value })));
+  s.onchange = () => set(s.value);
+  return s;
+}
+function rename(ent, v) {
+  v = v.trim();
+  diagram.relations.forEach(r => {
+    if (r.from_entity === ent.name) r.from_entity = v;
+    if (r.to_entity === ent.name) r.to_entity = v;
+  });
+  ent.name = v;
+}
+
+function renderEditor() {
+  const ed = $('#editor');
+  ed.innerHTML = '';
+  diagram.entities.forEach((ent, ei) => {
+    const rows = ent.columns.map((col, ci) => h('div', { className: 'row' },
+      field(col.name, v => (col.name = v), 'column'),
+      field(col.type, v => (col.type = v), 'type', 'types'),
+      h('label', {}, h('input', { type: 'checkbox', checked: !!col.primary_key,
+        onchange: e => (col.primary_key = e.target.checked) }), ' PK'),
+      h('button', { className: 'x', textContent: '\u00d7', title: 'Remove column',
+        onclick: () => { ent.columns.splice(ci, 1); renderEditor(); } })));
+    ed.append(h('div', { className: 'ent' },
+      h('div', { className: 'ent-head' },
+        field(ent.name, v => rename(ent, v), 'Table name', '', true),
+        h('button', { textContent: '+ Column', onclick: () => {
+          ent.columns.push({ name: '', type: 'varchar', primary_key: false, nullable: true });
+          renderEditor();
+        } }),
+        h('button', { className: 'x', textContent: 'Remove table', onclick: () => {
+          diagram.relations = diagram.relations.filter(r => r.from_entity !== ent.name && r.to_entity !== ent.name);
+          diagram.entities.splice(ei, 1);
+          renderEditor();
+        } })),
+      rows));
+  });
+
+  ed.append(h('div', { className: 'sub', textContent: 'Relations' }));
+  const names = diagram.entities.map(e => e.name);
+  diagram.relations.forEach((rel, ri) => ed.append(h('div', { className: 'row' },
+    select(names, rel.from_entity, v => (rel.from_entity = v)),
+    select(KINDS, rel.kind, v => (rel.kind = v)),
+    select(names, rel.to_entity, v => (rel.to_entity = v)),
+    field(rel.name, v => (rel.name = v), 'label, e.g. Takes'),
+    h('button', { className: 'x', textContent: '\u00d7', title: 'Remove relation',
+      onclick: () => { diagram.relations.splice(ri, 1); renderEditor(); } }))));
+}
+
+async function showReview(id) {
+  const r = await fetch(`/jobs/${id}/parsed`);
+  if (!r.ok) return note('Could not load the parsed diagram.', true);
+  diagram = await r.json();
+  const names = new Set(diagram.entities.map(e => e.name));
+  const before = diagram.relations.length;
+  diagram.relations = diagram.relations.filter(x => names.has(x.from_entity) && names.has(x.to_entity));
+  diagram.relations.forEach(x => {
+    const k = (x.kind || '').toLowerCase().replace(/[_ ]/g, '-');
+    x.kind = KINDS.includes(k) ? k : 'one-to-many';
+    x.name = x.name || '';
+  });
+  $('#rmsg').textContent = before !== diagram.relations.length
+    ? 'Some relations pointed at unknown tables and were dropped.' : '';
+  const vn = $('#vnotes');
+  vn.hidden = !diagram.notes;
+  vn.textContent = diagram.notes ? 'Model notes: ' + diagram.notes.slice(0, 500) : '';
+  $('#approve').disabled = false;
+  renderEditor();
+  $('#review-card').hidden = false;
+  $('#review-card').scrollIntoView({ behavior: 'smooth' });
+}
+
+$('#add-entity').onclick = () => {
+  diagram.entities.push({ name: 'new_table', columns: [{ name: '', type: 'varchar', primary_key: false, nullable: true }] });
+  renderEditor();
+};
+$('#add-rel').onclick = () => {
+  const n = diagram.entities.map(e => e.name);
+  if (!n.length) return;
+  diagram.relations.push({ name: '', from_entity: n[0], to_entity: n[n.length > 1 ? 1 : 0], kind: 'one-to-many' });
+  renderEditor();
+};
+
+$('#approve').onclick = async () => {
+  const names = diagram.entities.map(e => e.name);
+  const problem =
+    !names.length ? 'Add at least one table.' :
+    names.some(n => !n) ? 'Every table needs a name.' :
+    new Set(names.map(n => n.toLowerCase())).size !== names.length ? 'Table names must be unique.' :
+    diagram.entities.some(e => e.columns.some(c => !c.name.trim())) ? 'Every column needs a name (or remove the empty row).' : '';
+  if (problem) { $('#rmsg').textContent = problem; return; }
+  diagram.entities.forEach(e => e.columns.forEach(c => {
+    c.name = c.name.trim();
+    c.type = (c.type || 'varchar').trim();
+  }));
+  $('#rmsg').textContent = '';
+  $('#approve').disabled = true;
+  const r = await fetch(`/jobs/${jobId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ diagram }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    $('#rmsg').textContent = typeof err.detail === 'string' ? err.detail : 'The server rejected the diagram.';
+    $('#approve').disabled = false;
+    return;
+  }
+  $('#review-card').hidden = true;
+  setStep('review', 'done', 'Approved');
+  setStep('generate', 'active');
+  listen(jobId, seen);
 };
 </script>
 </body>

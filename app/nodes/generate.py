@@ -49,7 +49,7 @@ def _extract(text: str) -> tuple[str, str]:
 
 
 def generate_code(state: AgentState) -> dict:
-    llm = ChatGroq(model=CODE_MODEL, temperature=0.2, max_tokens=8000)
+    llm = ChatGroq(model=CODE_MODEL, temperature=0.2, max_tokens=8000,max_retries=4)
     prompt = f"{SYSTEM}\n\nER model (JSON):\n{json.dumps(state['parsed_diagram'], indent=2)}"
 
     if state.get("errors"):

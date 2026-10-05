@@ -10,7 +10,8 @@ from arq.connections import RedisSettings
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from sse_starlette.sse import EventSourceResponse
 from fastapi.responses import FileResponse
-
+from pydantic import BaseModel
+from app.schemas import ParsedDiagram
 from app.config import REDIS_URL
 
 UPLOADS = pathlib.Path("uploads")
@@ -47,21 +48,21 @@ async def create_job(file: UploadFile = File(...)):
     job_id = uuid.uuid4().hex
     path = UPLOADS / f"{job_id}{ext}"
     path.write_bytes(data)
-    await app.state.arq.enqueue_job("run_job", job_id, str(path))
+    await app.state.arq.enqueue_job("parse_job", job_id, str(path))
     return {"job_id": job_id}
 
 
 @app.get("/jobs/{job_id}/events")
-async def job_events(job_id: str):
+async def job_events(job_id: str, after: int = 0):
     key = f"job:{job_id}:events"
 
     async def stream():
-        cursor = 0
+        cursor = max(after, 0)
         for _ in range(600):  # about 5 minutes at 0.5 s per poll
             items = await app.state.redis.lrange(key, cursor, -1)
             for item in items:
                 yield {"data": item}
-                if json.loads(item)["stage"] in ("done", "failed"):
+                if json.loads(item)["stage"] in ("done", "failed", "review"):
                     return
             cursor += len(items)
             await asyncio.sleep(0.5)
@@ -75,3 +76,27 @@ async def job_result(job_id: str):
     if raw is None:
         raise HTTPException(404, "Result not ready (or expired)")
     return json.loads(raw)
+
+@app.get("/jobs/{job_id}/parsed")
+async def job_parsed(job_id: str):
+    raw = await app.state.redis.get(f"job:{job_id}:parsed")
+    if raw is None:
+        raise HTTPException(404, "No parsed diagram (job unknown or expired)")
+    return json.loads(raw)
+
+
+class Approval(BaseModel):
+    diagram: ParsedDiagram
+
+
+@app.post("/jobs/{job_id}/approve")
+async def approve(job_id: str, body: Approval):
+    r = app.state.redis
+    if not await r.exists(f"job:{job_id}:parsed"):
+        raise HTTPException(404, "Nothing to approve (job unknown or expired)")
+    if not body.diagram.entities:
+        raise HTTPException(422, "The diagram needs at least one table")
+    if not await r.set(f"job:{job_id}:approved", "1", nx=True, ex=86400):
+        raise HTTPException(409, "This job was already approved")
+    await app.state.arq.enqueue_job("build_job", job_id, body.diagram.model_dump_json())
+    return {"ok": True}

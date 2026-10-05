@@ -28,3 +28,21 @@ g.add_conditional_edges("validate", route, {"generate": "generate", "readme": "r
 g.add_edge("readme", END)
 
 graph = g.compile()
+
+# Phase 1: read the diagram, then stop so the user can review it
+p = StateGraph(AgentState)
+p.add_node("parse", parse_diagram)
+p.add_edge(START, "parse")
+p.add_edge("parse", END)
+parse_graph = p.compile()
+
+# Phase 2: runs after the user approves the diagram
+b = StateGraph(AgentState)
+b.add_node("generate", generate_code)
+b.add_node("validate", validate_code)
+b.add_node("readme", build_readme)
+b.add_edge(START, "generate")
+b.add_edge("generate", "validate")
+b.add_conditional_edges("validate", route, {"generate": "generate", "readme": "readme"})
+b.add_edge("readme", END)
+build_graph = b.compile()
